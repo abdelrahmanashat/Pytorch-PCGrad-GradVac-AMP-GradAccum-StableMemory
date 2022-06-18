@@ -6,23 +6,27 @@ import pdb
 import numpy as np
 from torchvision import transforms
 from data.multi_mnist import MultiMNIST
+from loss_weight import UncertainLossWeighter
 from net.lenet import MultiLeNetR, MultiLeNetO
 from pcgrad import PCGrad
-from utils import create_logger
+# from utils import create_logger
 
 # ------------------ CHANGE THE CONFIGURATION -------------
 PATH = './dataset'
 LR = 0.0005
 BATCH_SIZE = 256
-NUM_EPOCHS = 100
+NUM_EPOCHS = 128
 TASKS = ['R', 'L']
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+print('Using device:', DEVICE, flush=True)
+
 # ---------------------------------------------------------
 
 
 accuracy = lambda logits, gt: ((logits.argmax(dim=-1) == gt).float()).mean()
 to_dev = lambda inp, dev: [x.to(dev) for x in inp]
-logger = create_logger('Main')
+# logger = create_logger('Main')
 
 global_transformer = transforms.Compose(
     [transforms.ToTensor(),
@@ -52,11 +56,27 @@ nets = {
     'L': MultiLeNetO().to(DEVICE),
     'R': MultiLeNetO().to(DEVICE)
 }
-param = [p for v in nets.values() for p in list(v.parameters())]
-optimizer = torch.optim.Adam(param, lr=LR)
-optimizer = PCGrad(optimizer)
 
+num_tasks = 2
+#loss_weighter = None
+loss_weighter = UncertainLossWeighter(num_tasks).to(DEVICE)
+
+print('Using loss_weighter:',loss_weighter,flush=True)
+
+if loss_weighter is not None:
+    params = [p for v in nets.values() for p in list(v.parameters())] + list(loss_weighter.parameters())
+else:
+    params = [p for v in nets.values() for p in list(v.parameters())]
+
+optimizer = torch.optim.Adam(params, lr=LR)
+
+grad_optimizer = None
+#grad_optimizer = PCGrad(optimizer)
+
+print('Training starts', flush=True)
+total_steps = 0
 for ep in range(NUM_EPOCHS):
+    print('Training epoch {}/{} ...'.format(ep + 1, NUM_EPOCHS), flush=True)
     for net in nets.values():
         net.train()
     for batch in train_loader:
@@ -68,10 +88,19 @@ for ep in range(NUM_EPOCHS):
         out_r, mask_r = nets['R'](rep, None)
 
         losses = [F.nll_loss(out_l, label_l), F.nll_loss(out_r, label_r)]
-        optimizer.pc_backward(losses)
-        # sum(losses).backward()
-        optimizer.step()
+        if loss_weighter is not None:
+            losses = loss_weighter(losses)
+        if grad_optimizer is not None:
+            grad_optimizer.pc_backward(losses)
+            grad_optimizer.step()
+        else:
+            sum(losses).backward()
+            optimizer.step()
+        total_steps += 1
+        if (total_steps % 100) == 0:
+            print('Step #{:.0f}'.format(total_steps), flush=True)
 
+    print('Evaluating ...', flush=True)
     losses, acc = [], []
     for net in nets.values():
         net.eval()
@@ -90,8 +119,12 @@ for ep in range(NUM_EPOCHS):
             [accuracy(out_l, label_l).item(),
              accuracy(out_r, label_r).item()])
     losses, acc = np.array(losses), np.array(acc)
-    logger.info('epoches {}/{}: loss (left, right) = {:5.4f}, {:5.4f}'.format(
-        ep, NUM_EPOCHS, losses[:,0].mean(), losses[:,1].mean()))
-    logger.info(
-        'epoches {}/{}: accuracy (left, right) = {:5.3f}, {:5.3f}'.format(
-            ep, NUM_EPOCHS, acc[:,0].mean(), acc[:,1].mean()))
+    print('Epoches {}/{}: loss (left, right) = {:5.4f}, {:5.4f}'.format(
+        ep+1, NUM_EPOCHS, losses[:,0].mean(), losses[:,1].mean()), flush=True)
+    print('Epoches {}/{}: accuracy (left, right) = {:5.3f}, {:5.3f}'.format(
+        ep+1, NUM_EPOCHS, acc[:,0].mean(), acc[:,1].mean()), flush=True)
+    # logger.info('epoches {}/{}: loss (left, right) = {:5.4f}, {:5.4f}'.format(
+    #     ep, NUM_EPOCHS, losses[:,0].mean(), losses[:,1].mean()))
+    # logger.info(
+    #     'epoches {}/{}: accuracy (left, right) = {:5.3f}, {:5.3f}'.format(
+    #         ep, NUM_EPOCHS, acc[:,0].mean(), acc[:,1].mean()))

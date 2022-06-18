@@ -1,0 +1,160 @@
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torchvision import transforms
+
+from data.multi_mnist import MultiMNIST
+from learning_rates import AnnealingLR
+from loss_weight import UncertainLossWeighter
+from net.lenet import MultiLeNetR, MultiLeNetO
+from pcgrad_amp import PCGradAMP
+from gradvac_amp import GradVacAMP
+import apex
+
+# ------------------ CHANGE THE CONFIGURATION -------------
+PATH = './dataset'
+LR = 0.0005
+BATCH_SIZE = 64
+ACCUM_STEPS = 4
+NUM_EPOCHS = 128
+TASKS = ['R', 'L']
+DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+print('Using device:', DEVICE, flush=True)
+# ---------------------------------------------------------
+
+accuracy = lambda logits, gt: ((logits.argmax(dim=-1) == gt).float()).mean()
+to_dev = lambda inp, dev: [x.to(dev) for x in inp]
+
+global_transformer = transforms.Compose(
+    [transforms.ToTensor(),
+     transforms.Normalize((0.1307, ), (0.3081, ))])
+
+train_dst = MultiMNIST(PATH,
+                       train=True,
+                       download=True,
+                       transform=global_transformer,
+                       multi=True)
+train_loader = torch.utils.data.DataLoader(train_dst,
+                                           batch_size=BATCH_SIZE,
+                                           shuffle=True,
+                                           num_workers=4)
+
+val_dst = MultiMNIST(PATH,
+                     train=False,
+                     download=True,
+                     transform=global_transformer,
+                     multi=True)
+val_loader = torch.utils.data.DataLoader(val_dst,
+                                         batch_size=100,
+                                         shuffle=True,
+                                         num_workers=1)
+nets = {
+    'rep': MultiLeNetR().to(DEVICE),
+    'L': MultiLeNetO().to(DEVICE),
+    'R': MultiLeNetO().to(DEVICE)
+}
+
+use_amp = False
+scaler = None
+#scaler = torch.cuda.amp.GradScaler()
+
+num_tasks = 2
+
+loss_weighter = None
+#loss_weighter = UncertainLossWeighter(num_tasks).to(DEVICE)
+
+print('Using loss_weighter:',loss_weighter,flush=True)
+
+if loss_weighter is not None:
+    params = [p for v in nets.values() for p in list(v.parameters())] + list(loss_weighter.parameters())
+else:
+    params = [p for v in nets.values() for p in list(v.parameters())]
+
+optimizer = torch.optim.Adam(params, lr=LR)
+
+lr_scheduler = None
+
+# num_iters = (len(train_loader) * NUM_EPOCHS) // ACCUM_STEPS
+# warmup_iter = int(num_iters * 0.10)
+# peak_lr = LR*2.0
+# wd = 0.01
+# lr_decay_style = 'linear'
+# optimizer = apex.optimizers.FusedLAMB(params, lr=peak_lr, betas=(0.9, 0.98), eps=1e-06, weight_decay=wd)
+# lr_scheduler = AnnealingLR(optimizer,
+#                            start_lr=peak_lr,
+#                            warmup_iter=warmup_iter,
+#                            num_iters=num_iters,
+#                            decay_style=lr_decay_style,
+#                            last_iter=-1)
+
+
+grad_optimizer = None
+#grad_optimizer = PCGradAMP(num_tasks, optimizer, scaler = scaler, reduction='sum', cpu_offload = False)
+#grad_optimizer = GradVacAMP(num_tasks, optimizer, DEVICE, scaler = scaler, beta = 1e-2, reduction='sum', cpu_offload = False)
+
+print('Training starts', flush=True)
+total_steps = 0
+for ep in range(NUM_EPOCHS):
+    print('Training epoch {}/{} ...'.format(ep + 1, NUM_EPOCHS), flush=True)
+    for net in nets.values():
+        net.train()
+    for batch in train_loader:
+        mask = None
+        optimizer.zero_grad()
+        img, label_l, label_r = to_dev(batch, DEVICE)
+        with torch.cuda.amp.autocast(enabled=use_amp):
+            rep, mask = nets['rep'](img, mask)
+            out_l, mask_l = nets['L'](rep, None)
+            out_r, mask_r = nets['R'](rep, None)
+            losses = [F.nll_loss(out_l, label_l)/ACCUM_STEPS, F.nll_loss(out_r, label_r)/ACCUM_STEPS]
+            if loss_weighter is not None:
+                losses = loss_weighter(losses)
+
+        if grad_optimizer is not None:
+            grad_optimizer.backward(losses)
+        else:
+            if scaler is not None:
+                scaler.scale(sum(losses)).backward()
+            else:
+                sum(losses).backward()
+
+        total_steps += 1
+        if total_steps % ACCUM_STEPS == 0:
+            if lr_scheduler is not None:
+                lr_scheduler.step()
+            if grad_optimizer is not None:
+                grad_optimizer.step()
+            else:
+                if scaler is not None:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
+            if (total_steps % (ACCUM_STEPS * 100)) == 0:
+                print('Step #{:.0f}'.format(total_steps/ACCUM_STEPS), flush=True)
+
+    print('Evaluating ...', flush=True)
+    losses, acc = [], []
+    for net in nets.values():
+        net.eval()
+    for batch in val_loader:
+        img, label_l, label_r = to_dev(batch, DEVICE)
+        mask = None
+        with torch.cuda.amp.autocast(enabled=use_amp):
+            rep, mask = nets['rep'](img, mask)
+            out_l, mask_l = nets['L'](rep, None)
+            out_r, mask_r = nets['R'](rep, None)
+
+            losses.append([
+                F.nll_loss(out_l, label_l).item(),
+                F.nll_loss(out_r, label_r).item()
+            ])
+            acc.append(
+                [accuracy(out_l, label_l).item(),
+                 accuracy(out_r, label_r).item()])
+    losses, acc = np.array(losses), np.array(acc)
+    print('Epoches {}/{}: loss (left, right) = {:5.5f},{:5.5f}'.format(
+        ep+1, NUM_EPOCHS, losses[:,0].mean(), losses[:,1].mean()), flush=True)
+    print('Epoches {}/{}: accuracy (left, right) = {:5.5f},{:5.5f}'.format(
+        ep+1, NUM_EPOCHS, acc[:,0].mean(), acc[:,1].mean()), flush=True)

@@ -1,6 +1,6 @@
-# PyTorch-PCGrad
+# Pytorch-PCGrad-AMP-GradAccum
 
-This repository provide code of reimplementation for [Gradient Surgery for Multi-Task Learning](https://arxiv.org/pdf/2001.06782.pdf) in PyTorch 1.6.0. 
+PyTorch 1.11 reimplementation of [Gradient Surgery for Multi-Task Learning](https://arxiv.org/abs/2001.06782) with Automatic Mixed Precision Training and Gradient Accumulation
 
 ## Setup
 Install the required packages via:
@@ -12,33 +12,43 @@ pip install -r requirements.txt
 
 ```python
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from pcgrad import PCGrad
+from pcgrad_amp import PCGradAMP
 
-# wrap your favorite optimizer
-optimizer = PCGrad(optim.Adam(net.parameters())) 
-losses = [...] # a list of per-task losses
-assert len(losses) == num_tasks
-optimizer.pc_backward(losses) # calculate the gradient can apply gradient modification
-optimizer.step()  # apply gradient step
+ACCUM_STEPS = ...
+NUM_EPOCHS = ...
+model = ...
+train_loader = ...
+
+optimizer = torch.optim.Adam(model.parameters())
+scaler = torch.cuda.amp.GradScaler()
+num_tasks = 2
+optimizer = PCGradAMP(num_tasks, optimizer, scaler=scaler, reduction='sum', cpu_offload= True)
+
+total_steps = 0
+for ep in range(NUM_EPOCHS):
+    for batch in train_loader:
+        losses = [...]
+        optimizer.backward(losses) # compute & accumulate gradients
+        total_steps += 1
+        if total_steps % ACCUM_STEPS:
+            optimizer.step() # parameter update
+
 ```
 
 ## Training
-- Mulit-MNIST 
+- Multi-MNIST
   Please run the training script via the following command. Part of implementation is leveraged from https://github.com/intel-isl/MultiObjectiveOptimization
   ```
-  python main_multi_mnist.py
+  python main_multi_mnist_amp.py
   ```
   The result is shown below.
   | Method                  | left-digit | right-digit |
   | ----------------------- | ---------: | ----------: |
   | Jointly Training        |      90.30 |       90.01 |
-  | **PCGrad (this repo.)** |  **95.00** |   **92.00** |
-  | PCGrad (official)       |      96.58 |       95.50 |
+  | Pytorch-PCGrad (Wei-Cheng Tseng) |  95.00 |   92.00 |
+  | **Pytorch-PCGrad-AMP-GradAccum (this repo.)** |  **95.00** |   **92.00** |
+  | PCGrad (original paper)       |      96.58 |       95.50 |
 
-- Cifar100-MTL
-  coming soon 
 ## Reference
 
 Please cite as:
@@ -56,5 +66,12 @@ Please cite as:
   title = {WeiChengTseng/Pytorch-PCGrad},
   url = {https://github.com/WeiChengTseng/Pytorch-PCGrad.git},
   year = {2020}
+}
+
+@misc{Pytorch-PCGrad-AMP-GradAccum,
+  author = {Antoine Nzeyimana},
+  title = {Pytorch-PCGrad-AMP-GradAccum/Antoine Nzeyimana},
+  url = {https://github.com/anzeyimana/Pytorch-PCGrad-AMP-GradAccum},
+  year = {2022}
 }
 ```
