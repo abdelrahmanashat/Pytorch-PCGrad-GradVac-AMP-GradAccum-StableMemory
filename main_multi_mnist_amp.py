@@ -55,9 +55,9 @@ nets = {
     'R': MultiLeNetO().to(DEVICE)
 }
 
-use_amp = False
-scaler = None
-#scaler = torch.cuda.amp.GradScaler()
+use_amp = True
+#scaler = None
+scaler = torch.cuda.amp.GradScaler()
 
 num_tasks = 2
 
@@ -75,23 +75,11 @@ optimizer = torch.optim.Adam(params, lr=LR)
 
 lr_scheduler = None
 
-# num_iters = (len(train_loader) * NUM_EPOCHS) // ACCUM_STEPS
-# warmup_iter = int(num_iters * 0.10)
-# peak_lr = LR*2.0
-# wd = 0.01
-# lr_decay_style = 'linear'
-# optimizer = apex.optimizers.FusedLAMB(params, lr=peak_lr, betas=(0.9, 0.98), eps=1e-06, weight_decay=wd)
-# lr_scheduler = AnnealingLR(optimizer,
-#                            start_lr=peak_lr,
-#                            warmup_iter=warmup_iter,
-#                            num_iters=num_iters,
-#                            decay_style=lr_decay_style,
-#                            last_iter=-1)
-
-
-grad_optimizer = None
+#grad_optimizer = None
 #grad_optimizer = PCGradAMP(num_tasks, optimizer, scaler = scaler, reduction='sum', cpu_offload = False)
-#grad_optimizer = GradVacAMP(num_tasks, optimizer, DEVICE, scaler = scaler, beta = 1e-2, reduction='sum', cpu_offload = False)
+grad_optimizer = GradVacAMP(num_tasks, optimizer, DEVICE, scaler = scaler, beta = 1e-2, reduction='sum', cpu_offload = False)
+
+print('using grad_optimizer:', grad_optimizer, flush=True)
 
 print('Training starts', flush=True)
 total_steps = 0

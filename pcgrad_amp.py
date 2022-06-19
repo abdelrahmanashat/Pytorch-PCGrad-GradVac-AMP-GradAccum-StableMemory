@@ -1,10 +1,32 @@
+# MIT License
+#
+# Copyright (c) 2022 Antoine Nzeyimana
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import copy
 import random
 import numpy as np
 import torch
 
 class PCGradAMP():
-    def __init__(self, num_tasks, optimizer: torch.optim.Optimizer, scaler: torch.cuda.amp.GradScaler = None, reduction='sum', cpu_offload: bool = True):
+    def __init__(self, num_tasks, optimizer: torch.optim.Optimizer, scaler: torch.cuda.amp.GradScaler = None, reduction='sum', cpu_offload: bool = False):
         self.num_tasks = num_tasks
         self.cpu_offload = cpu_offload
         self._scaler, self._optim, self._reduction = scaler, optimizer, reduction
@@ -14,6 +36,19 @@ class PCGradAMP():
             grad, shape, has_grad = self._retrieve_grad()
             self.accum_grad.append((grad, shape, has_grad))
         return
+
+    def state_dict(self) -> dict:
+        if self._scaler is not None:
+            return {'scaler': self._scaler.state_dict(), 'optimizer': self._optim.state_dict()}
+        else:
+            return {'optimizer': self._optim.state_dict()}
+
+    def load_state_dict(self, state_dict: dict) -> None:
+        if self._scaler is not None:
+            self._scaler.load_state_dict(state_dict['scaler'])
+            self._optim.load_state_dict(state_dict['optimizer'])
+        else:
+            self._optim.load_state_dict(state_dict['optimizer'])
 
     @property
     def optimizer(self):
