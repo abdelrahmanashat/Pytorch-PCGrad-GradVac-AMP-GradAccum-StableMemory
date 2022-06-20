@@ -59,7 +59,8 @@ for ep in range(NUM_EPOCHS):
 
 ## Training
 - Multi-MNIST
-  Please run the training script via the following command. Part of implementation is leveraged from https://github.com/intel-isl/MultiObjectiveOptimization
+
+Please run the training script via the following command. Part of implementation is leveraged from https://github.com/intel-isl/MultiObjectiveOptimization
   ```
   python main_multi_mnist_amp.py
   ```
@@ -69,6 +70,13 @@ for ep in range(NUM_EPOCHS):
   | Jointly Training        |      89.88 |       87.51 |
   | Gradient Surgery (PCGrad) |      90.92 |       88.13 |
   | Gradient Vaccine       |      91.07 |       88.79 |
+
+The training loss curves indicate GradVac is slightly better than PCGrad.
+
+<img src="left_loss.png"/>
+
+<img src="right_loss.png"/>
+
 
 ## Reference
 

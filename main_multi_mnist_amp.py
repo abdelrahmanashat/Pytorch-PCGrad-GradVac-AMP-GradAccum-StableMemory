@@ -76,8 +76,8 @@ optimizer = torch.optim.Adam(params, lr=LR)
 lr_scheduler = None
 
 #grad_optimizer = None
-#grad_optimizer = PCGradAMP(num_tasks, optimizer, scaler = scaler, reduction='sum', cpu_offload = False)
-grad_optimizer = GradVacAMP(num_tasks, optimizer, DEVICE, scaler = scaler, beta = 1e-2, reduction='sum', cpu_offload = False)
+grad_optimizer = PCGradAMP(num_tasks, optimizer, scaler = scaler, reduction='sum', cpu_offload = False)
+#grad_optimizer = GradVacAMP(num_tasks, optimizer, DEVICE, scaler = scaler, beta = 1e-2, reduction='sum', cpu_offload = False)
 
 print('using grad_optimizer:', grad_optimizer, flush=True)
 
@@ -85,6 +85,9 @@ print('Training starts', flush=True)
 total_steps = 0
 for ep in range(NUM_EPOCHS):
     print('Training epoch {}/{} ...'.format(ep + 1, NUM_EPOCHS), flush=True)
+    losses1 = 0.0
+    losses2 = 0.0
+    count = 0.0
     for net in nets.values():
         net.train()
     for batch in train_loader:
@@ -98,6 +101,10 @@ for ep in range(NUM_EPOCHS):
             losses = [F.nll_loss(out_l, label_l)/ACCUM_STEPS, F.nll_loss(out_r, label_r)/ACCUM_STEPS]
             if loss_weighter is not None:
                 losses = loss_weighter(losses)
+
+            losses1 += (losses[0].item()*ACCUM_STEPS)
+            losses2 += (losses[1].item()*ACCUM_STEPS)
+            count += 1.0
 
         if grad_optimizer is not None:
             grad_optimizer.backward(losses)
@@ -121,6 +128,8 @@ for ep in range(NUM_EPOCHS):
                     optimizer.step()
             if (total_steps % (ACCUM_STEPS * 100)) == 0:
                 print('Step #{:.0f}'.format(total_steps/ACCUM_STEPS), flush=True)
+
+    print('Epoch #{:.0f} LOSS: {:.5f},{:.5f}'.format(ep+1, losses1/count, losses2/count), flush=True)
 
     print('Evaluating ...', flush=True)
     losses, acc = [], []
