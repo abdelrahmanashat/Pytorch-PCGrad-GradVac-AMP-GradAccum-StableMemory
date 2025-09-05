@@ -1,6 +1,6 @@
-# Pytorch-PCGrad-GradVac-AMP-GradAccum
+# Pytorch-PCGrad-GradVac-AMP-GradAccum-StableMemory
 
-PyTorch 1.11 reimplementation of multi task gradient adaptation ideas from papers:
+PyTorch 1.11 reimplementation of multi task gradient adaptation ideas with no memory leaks from papers:
 - [Gradient Surgery for Multi-Task Learning](https://arxiv.org/abs/2001.06782)
 - [Gradient Vaccine: Investigating and Improving Multi-task Optimization in Massively Multilingual Models](https://arxiv.org/abs/2010.05874)
 
@@ -8,8 +8,12 @@ Supports:
 - Automatic mixed precision (AMP)
 - Gradient Accumulation (with CPU offload support)
 
+Fixes:
+- Out of Memory (OOM) problems associated with the original implementation written by respectable authors Wei-Cheng Tseng and Antoine Nzeyimana. There were undeleted tensors that quickly fill up the GPU memory leading to OOM.
+
 Adaptation from the following repositories:
 - https://github.com/WeiChengTseng/Pytorch-PCGrad
+- https://github.com/anzeyimana/Pytorch-PCGrad-GradVac-AMP-GradAccum
 - https://github.com/median-research-group/LibMTL/blob/main/LibMTL/weighting/GradVac.py
 
 ## Setup
@@ -57,26 +61,6 @@ for ep in range(NUM_EPOCHS):
 
 ```
 
-## Training
-- Multi-MNIST
-
-Please run the training script via the following command. Part of implementation is leveraged from https://github.com/intel-isl/MultiObjectiveOptimization
-  ```
-  python main_multi_mnist_amp.py
-  ```
-  Obtained results with default settings
-  | Method                  | left-digit | right-digit |
-  | ----------------------- | ---------: | ----------: |
-  | Jointly Training        |      89.88 |       87.51 |
-  | Gradient Surgery (PCGrad) |      90.92 |       88.13 |
-  | Gradient Vaccine       |      91.07 |       88.79 |
-
-The training loss curves indicate GradVac is slightly better than PCGrad.
-
-<img src="left_loss.png"/>
-
-<img src="right_loss.png"/>
-
 
 ## Reference
 
@@ -99,10 +83,10 @@ Please cite as:
   year={2020}
 }
 
-@misc{Pytorch-PCGrad-GradVac-AMP-GradAccum,
-  author = {Antoine Nzeyimana},
-  title = {Pytorch-PCGrad-GradVac-AMP-GradAccum/Antoine Nzeyimana},
-  url = {https://github.com/anzeyimana/Pytorch-PCGrad-GradVac-AMP-GradAccum},
-  year = {2022}
+@misc{Pytorch-PCGrad-GradVac-AMP-GradAccum-StableMemory,
+  author = {Abdelrahman Nashat},
+  title = {Pytorch-PCGrad-GradVac-AMP-GradAccum-StableMemory/Abdelrahman Nashat},
+  url = {https://github.com/anzeyimana/Pytorch-PCGrad-GradVac-AMP-GradAccum-StableMemory},
+  year = {2025}
 }
 ```
