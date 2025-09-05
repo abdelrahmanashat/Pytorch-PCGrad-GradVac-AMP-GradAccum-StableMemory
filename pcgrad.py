@@ -43,10 +43,13 @@ class PCGrad():
         pc_grad = self._project_conflicting(grads, has_grads)
         pc_grad = self._unflatten_grad(pc_grad, shapes[0])
         self._set_grad(pc_grad)
+        torch.cuda.empty_cache()  # Empty all deleted tensors from GPU cache
         return
 
     def _project_conflicting(self, grads, has_grads, shapes=None):
         shared = torch.stack(has_grads).prod(0).bool()
+        del has_grads # The stack method creates a new tensor and copies the new data to it. We don't need the original tensor has_grads.
+        
         pc_grad, num_task = copy.deepcopy(grads), len(grads)
         for g_i in pc_grad:
             random.shuffle(grads)
@@ -55,6 +58,9 @@ class PCGrad():
                 if g_i_g_j < 0:
                     g_i -= (g_i_g_j) * g_j / (g_j.norm()**2)
         merged_grad = torch.zeros_like(grads[0]).to(grads[0].device)
+        
+        del grads # We don't need grads. We only need pc_grad and merged_grad
+        
         if self._reduction:
             merged_grad[shared] = torch.stack([g[shared]
                                            for g in pc_grad]).mean(dim=0)
@@ -65,6 +71,9 @@ class PCGrad():
 
         merged_grad[~shared] = torch.stack([g[~shared]
                                             for g in pc_grad]).sum(dim=0)
+        
+        del pc_grad, shared # The stack method creates a new tensor and copies the new data to it. We don't need the original tensor pc_grad.
+        
         return merged_grad
 
     def _set_grad(self, grads):
@@ -106,10 +115,12 @@ class PCGrad():
             length = np.prod(shape)
             unflatten_grad.append(grads[idx:idx + length].view(shape).clone())
             idx += length
+        del grads # Because clone() creates a copy and we don't need the original anymore
         return unflatten_grad
 
     def _flatten_grad(self, grads, shapes):
         flatten_grad = torch.cat([g.flatten() for g in grads])
+        del grads # The cat method creates a new tensor and copies the new data to it. We don't need the original tensor pc_grad.
         return flatten_grad
 
     def _retrieve_grad(self):
@@ -136,6 +147,7 @@ class PCGrad():
                 shape.append(p.grad.shape)
                 grad.append(p.grad.clone())
                 has_grad.append(torch.ones_like(p).to(p.device))
+                del p.grad  # Because clone() creates a copy and we don't need the original anymore
         return grad, shape, has_grad
 
 
